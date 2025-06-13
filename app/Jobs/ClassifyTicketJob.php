@@ -7,57 +7,87 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-
 use App\Models\Ticket;
-use App\Models\Category;
-use OpenAI\Laravel\Facades\OpenAI;
+use App\Services\TicketClassifier;
 
 class ClassifyTicketJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
+     * The number of times the job may be attempted.
+     *
+     * @var int
+     */
+    public $tries = 3;
+
+    /**
+     * The number of seconds to wait before retrying the job.
+     *
+     * @var int
+     */
+    public $backoff = 60;
+
+    /**
+     * The ticket instance.
+     *
+     * @var \App\Models\Ticket
+     */
+    protected $ticket;
+
+    /**
      * Create a new job instance.
      */
-    public function __construct()
+    public function __construct(Ticket $ticket)
     {
-        //
+        $this->ticket = $ticket;
     }
 
     /**
      * Execute the job.
      */
-    public function handle(): void
+    public function handle(TicketClassifier $classifier): void
     {
-        $enabled = config('openai.classify_enabled', true);
+        // Update ticket status to processing
+        $this->ticket->update(['status' => 'processing']);
 
-        $categoryName = 'General';
-        $confidence = 0.0;
+        try {
+            // Get classification result
+            $result = $classifier->classify($this->ticket);
 
-        if ($enabled) {
-            $response = OpenAI::chat()->create([
-                'model' => 'gpt-3.5-turbo',
-                'messages' => [
-                    ['role' => 'system', 'content' => 'You are a ticket classifier. Classify each ticket into one of these: Billing, Bug, Feature Request, or General. Respond with JSON: {"category":"...", "confidence":0.xx}'],
-                    ['role' => 'user', 'content' => "Subject: {$this->ticket->subject}\n\nBody: {$this->ticket->body}"],
-                ],
+            // Update ticket with classification results
+            $this->ticket->update([
+                'category_id' => $result['category_id'],
+                'confidence' => $result['confidence'],
+                'status' => 'classified'
+            ]);
+        } catch (\Exception $e) {
+            // Log the error
+            \Log::error('Failed to classify ticket', [
+                'ticket_id' => $this->ticket->id,
+                'error' => $e->getMessage()
             ]);
 
-            $result = json_decode($response['choices'][0]['message']['content'], true);
-            $categoryName = $result['category'] ?? 'General';
-            $confidence = $result['confidence'] ?? 0.7;
-        } else {
-            $categories = ['Billing', 'Bug', 'Feature Request', 'General'];
-            $categoryName = $categories[array_rand($categories)];
-            $confidence = rand(70, 100) / 100;
+            // Update ticket status to failed
+            $this->ticket->update(['status' => 'failed']);
+
+            // Re-throw the exception to trigger job retry
+            throw $e;
         }
+    }
 
-        $category = Category::where('name', $categoryName)->first();
-
-        $this->ticket->update([
-            'category_id' => $category?->id,
-            'confidence' => $confidence,
-            'status' => 'classified',
+    /**
+     * Handle a job failure.
+     */
+    public function failed(\Throwable $exception): void
+    {
+        // Log the final failure
+        \Log::error('Ticket classification job failed after all retries', [
+            'ticket_id' => $this->ticket->id,
+            'error' => $exception->getMessage()
         ]);
+
+        // Update ticket status to failed
+        $this->ticket->update(['status' => 'failed']);
     }
 }

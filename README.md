@@ -16,6 +16,7 @@ A Laravel-based ticket management system with AI-powered ticket classification u
   - Categories: Billing, Bug, Feature Request, General
   - Confidence scoring for classifications
   - Fallback to random classification if AI is disabled
+  - Bulk classification using job queues
 
 - 🎨 Modern UI
   - Clean and responsive design
@@ -98,6 +99,41 @@ npm run dev
 4. Use the search and filter options to find specific tickets
 5. Click "Classify" on unclassified tickets to use AI classification
 
+### Bulk Classification
+
+The application includes a command-line tool for bulk classification of tickets using job queues. This is useful for processing large numbers of tickets efficiently.
+
+To use bulk classification:
+
+1. Start the queue worker:
+```bash
+php artisan queue:work
+```
+
+2. Run the bulk classification command:
+```bash
+# Basic usage (process up to 100 tickets)
+php artisan tickets:bulk-classify
+
+# Process a specific number of tickets
+php artisan tickets:bulk-classify --limit=50
+
+# Process tickets with a specific status
+php artisan tickets:bulk-classify --status=open
+
+# Customize chunk size for better performance
+php artisan tickets:bulk-classify --chunk=20
+
+# Combine options
+php artisan tickets:bulk-classify --status=open --limit=200 --chunk=25
+```
+
+Command Options:
+- `--status`: Filter tickets by status (default: open)
+- `--limit`: Maximum number of tickets to process (default: 100)
+- `--chunk`: Number of tickets to process in each chunk (default: 10)
+
+
 ## API Endpoints
 
 - `GET /api/tickets` - List tickets with pagination, search, and filters
@@ -120,9 +156,9 @@ npm run build
 ## Contributing
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
+2. Create your feature branch (`git checkout -b feature/feature-name`)
+3. Commit your changes (`git commit -m 'Add some new feature'`)
+4. Push to the branch (`git push origin feature/feature-name`)
 5. Open a Pull Request
 
 ## License
